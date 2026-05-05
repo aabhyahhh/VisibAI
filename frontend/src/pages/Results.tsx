@@ -11,6 +11,7 @@ import AIThinking from '../components/AIThinking';
 import AEOLeaderboard from '../components/AEOLeaderboard';
 import { runDiagnostic, saveToHistory } from '../lib/api';
 import type { AEOResult, RecommendationAction } from '../lib/types';
+import { generatePDFReport } from '../lib/generateReport';
 
 type TabKey = 'chatgpt' | 'gemini' | 'groq';
 
@@ -230,10 +231,18 @@ function ActionCard({ action, index }: { action: RecommendationAction; index: nu
 // ---------------------------------------------------------------------------
 // Main Results page
 // ---------------------------------------------------------------------------
+function downloadReport(result: AEOResult) {
+  generatePDFReport(result);
+}
+
 export default function Results() {
   const navigate  = useNavigate();
   const [result, setResult]     = useState<AEOResult | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('chatgpt');
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
 
   useEffect(() => {
     const raw = localStorage.getItem('aeo_results');
@@ -248,6 +257,8 @@ export default function Results() {
   const hasScore = result.score !== null;
   const topCompetitor = result.competitors[0] ?? null;
   const currentEntities = result.entities[activeTab] || [];
+  const userLeaderboardRank = result.leaderboard?.find(e => e.is_user)?.rank ?? null;
+  const isLeaderboardFirst = userLeaderboardRank === 1;
 
   const handleNewResult = (r: AEOResult) => {
     setResult(r); setActiveTab('chatgpt');
@@ -275,6 +286,18 @@ export default function Results() {
               {result.business_name}
             </span>
           )}
+          <button
+            onClick={() => downloadReport(result)}
+            style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '8px 18px', borderRadius: '9999px', border: '1px solid #1E2028', background: 'transparent', color: '#94A3B8', fontSize: '13px', fontFamily: "'Inter', sans-serif", cursor: 'pointer', transition: 'all 0.2s', flexShrink: 0 }}
+            onMouseEnter={e => { e.currentTarget.style.color = '#F1F5F9'; e.currentTarget.style.borderColor = '#3B82F6'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.borderColor = '#1E2028'; }}
+          >
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+              <path d="M7 2v7M4 7l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M2 11h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+            </svg>
+            Download Report
+          </button>
         </div>
 
         {/* Re-run panel */}
@@ -344,7 +367,7 @@ export default function Results() {
                 AI assistants are becoming the <strong style={{ color: '#F1F5F9' }}>primary discovery layer</strong> for buyers.
                 If your brand is not mentioned in these answers, you are{' '}
                 <strong style={{ color: '#EF4444' }}>invisible at the exact moment a customer is deciding</strong>.
-                {topCompetitor && <> Right now, <strong style={{ color: '#F1F5F9' }}>{topCompetitor}</strong> is getting those clicks instead of you.</>}
+                {topCompetitor && <> <strong style={{ color: '#F1F5F9' }}>{topCompetitor}</strong> and other competitors are currently being recommended more frequently in AI-generated answers.</>}
               </p>
             </Card>
 
@@ -369,28 +392,46 @@ export default function Results() {
 
           {/* Right column: Top competitor + score mini-bars */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            {/* Top competitor */}
-            <Card accent={topCompetitor ? 'rgba(239,68,68,0.2)' : undefined} style={{ padding: '22px 20px' }}>
-              <CardLabel>Who's Beating You</CardLabel>
-              {topCompetitor ? (
-                <>
-                  <div style={{ fontFamily: "'Syne', sans-serif", fontSize: '20px', fontWeight: 800, color: '#EF4444', marginBottom: '6px' }}>{topCompetitor}</div>
-                  <p style={{ fontSize: '12px', color: '#94A3B8', margin: '0 0 12px', lineHeight: '1.5' }}>
-                    Outranking you in AI answers for this query
-                  </p>
-                  {result.competitors.length > 1 && (
-                    <div style={{ borderTop: '1px solid #1E2028', paddingTop: '10px' }}>
-                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px', color: '#475569', marginBottom: '6px' }}>Also outranking you</div>
-                      {result.competitors.slice(1, 4).map(c => (
-                        <div key={c} style={{ fontSize: '12px', color: '#94A3B8', padding: '3px 0' }}>· {c}</div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <p style={{ fontSize: '13px', color: '#475569', margin: 0 }}>No direct competitors detected for this query.</p>
-              )}
-            </Card>
+            {/* Top competitor / leader card */}
+            {isLeaderboardFirst ? (
+              <Card accent="rgba(16,185,129,0.25)" style={{ padding: '22px 20px' }}>
+                <CardLabel accent="#10B981">You're Leading</CardLabel>
+                <div style={{ fontFamily: "'Syne', sans-serif", fontSize: '18px', fontWeight: 800, color: '#10B981', marginBottom: '8px' }}>
+                  🏆 #1 in AI Answers
+                </div>
+                <p style={{ fontSize: '12px', color: '#94A3B8', margin: '0 0 14px', lineHeight: '1.6' }}>
+                  Your brand is currently the most visible in AI-generated answers for this query.
+                </p>
+                <span style={{ display: 'inline-block', fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px', color: '#10B981', background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', padding: '3px 12px', borderRadius: '9999px' }}>
+                  AEO Leader
+                </span>
+                <p style={{ fontSize: '11px', color: '#475569', marginTop: '14px', lineHeight: '1.5' }}>
+                  Maintain your position by expanding into adjacent queries.
+                </p>
+              </Card>
+            ) : (
+              <Card accent={topCompetitor ? 'rgba(239,68,68,0.2)' : undefined} style={{ padding: '22px 20px' }}>
+                <CardLabel>Who's Beating You</CardLabel>
+                {topCompetitor ? (
+                  <>
+                    <div style={{ fontFamily: "'Syne', sans-serif", fontSize: '20px', fontWeight: 800, color: '#EF4444', marginBottom: '6px' }}>{topCompetitor}</div>
+                    <p style={{ fontSize: '12px', color: '#94A3B8', margin: '0 0 12px', lineHeight: '1.5' }}>
+                      Outranking you in AI answers for this query
+                    </p>
+                    {result.competitors.length > 1 && (
+                      <div style={{ borderTop: '1px solid #1E2028', paddingTop: '10px' }}>
+                        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px', color: '#475569', marginBottom: '6px' }}>Also outranking you</div>
+                        {result.competitors.slice(1, 4).map(c => (
+                          <div key={c} style={{ fontSize: '12px', color: '#94A3B8', padding: '3px 0' }}>· {c}</div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p style={{ fontSize: '13px', color: '#475569', margin: 0 }}>No direct competitors detected for this query.</p>
+                )}
+              </Card>
+            )}
 
             {/* Score mini-bars */}
             <Card style={{ padding: '20px', flex: 1 }}>

@@ -153,14 +153,13 @@ export default function Home() {
           <span style={S.trustLabel}>Tracks visibility across</span>
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
             {[
-              { name: 'ChatGPT', color: '#10B981', model: 'llama-3.3-70b' },
-              { name: 'Gemini',  color: '#3B82F6', model: 'mixtral-8x7b' },
-              { name: 'Groq',    color: '#F59E0B', model: 'llama-3.3-70b' },
-            ].map(({ name, color, model }) => (
+              { name: 'ChatGPT', color: '#10B981' },
+              { name: 'Gemini',  color: '#3B82F6' },
+              { name: 'Groq',    color: '#F59E0B' },
+            ].map(({ name, color }) => (
               <div key={name} style={S.trustPill}>
                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: color, boxShadow: `0 0 8px ${color}` }} />
                 <span style={{ fontSize: '14px', fontWeight: 600, color: '#F1F5F9' }}>{name}</span>
-                <span style={{ fontSize: '11px', color: '#475569' }}>· {model}</span>
               </div>
             ))}
           </div>
@@ -374,7 +373,7 @@ export default function Home() {
       {/* ── FOOTER ── */}
       <footer style={S.footer}>
         <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px', color: '#475569' }}>
-          © 2025 AEO Diagnostic. Built for the AI-first era.
+          © 2025 VisibAI. Built for the AI-first era.
         </span>
       </footer>
 

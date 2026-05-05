@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -6,11 +7,13 @@ interface LayoutProps {
 }
 
 export default function Layout({ children, onAnalyzeClick }: LayoutProps) {
+  const navigate = useNavigate();
+
   const handleAnalyzeClick = () => {
     if (onAnalyzeClick) { onAnalyzeClick(); return; }
     const el = document.getElementById('scanner');
     if (el) el.scrollIntoView({ behavior: 'smooth' });
-    else window.location.href = '/';
+    else navigate('/');
   };
 
   return (
@@ -29,8 +32,11 @@ export default function Layout({ children, onAnalyzeClick }: LayoutProps) {
           maxWidth: '1200px', margin: '0 auto', padding: '0 24px',
           width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
-          {/* Logo */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {/* Logo — clickable, routes to home */}
+          <button
+            onClick={() => navigate('/')}
+            style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+          >
             <div style={{
               width: '28px', height: '28px', borderRadius: '8px',
               background: 'linear-gradient(135deg, #3B82F6, #60A5FA)',
@@ -43,23 +49,9 @@ export default function Layout({ children, onAnalyzeClick }: LayoutProps) {
               </svg>
             </div>
             <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: '15px', color: '#F1F5F9' }}>
-              AEO Diagnostic
+              VisibAI
             </span>
-          </div>
-
-          {/* Center links */}
-          <div style={{ display: 'flex', gap: '32px', alignItems: 'center' }}>
-            <a href="#how-it-works" style={{ fontSize: '14px', color: '#94A3B8', textDecoration: 'none', transition: 'color 0.2s' }}
-              onMouseEnter={e => (e.currentTarget.style.color = '#F1F5F9')}
-              onMouseLeave={e => (e.currentTarget.style.color = '#94A3B8')}>
-              How it works
-            </a>
-            <a href="#features" style={{ fontSize: '14px', color: '#94A3B8', textDecoration: 'none', transition: 'color 0.2s' }}
-              onMouseEnter={e => (e.currentTarget.style.color = '#F1F5F9')}
-              onMouseLeave={e => (e.currentTarget.style.color = '#94A3B8')}>
-              Features
-            </a>
-          </div>
+          </button>
 
           {/* CTA */}
           <button onClick={handleAnalyzeClick} style={{
