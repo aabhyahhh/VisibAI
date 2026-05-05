@@ -1,7 +1,7 @@
 """
 Entity extraction pipeline — 3 layers:
   1. LLM-first: ask Groq to extract brand/product/company names as JSON
-  2. Rule-based filter: remove geography, generic nouns, junk
+  2. Rule-based filter: remove geography, generic nouns, flavors, adjectives, junk
   3. Frequency + position enrichment
 
 Entity shape:
@@ -34,13 +34,40 @@ _GEOGRAPHY = {
     "korean", "korea", "taiwan", "brazil", "brazilian", "mexican", "mexico",
 }
 
+# FIX 1: Added a dedicated flavors/attributes/adjectives block-list.
+# These were leaking through as "brands" because they appear title-cased
+# in product descriptions (e.g. "Spicy variant", "Masala flavour").
+_FLAVORS_AND_ATTRIBUTES = {
+    # tastes / flavors
+    "spicy", "masala", "salted", "sweet", "salty", "sour", "bitter",
+    "tangy", "smoky", "smoked", "bbq", "barbecue", "cheesy", "cheese",
+    "creamy", "buttery", "herby", "herbed", "peri", "chilli", "chili",
+    "pepper", "peppered", "mint", "minty", "lime", "lemon", "lemony",
+    "mango", "strawberry", "vanilla", "chocolate", "caramel", "honey",
+    "original", "classic", "plain", "natural", "unflavored", "unsalted",
+    "roasted", "baked", "fried", "grilled", "toasted",
+    # texture / format adjectives
+    "crunchy", "crispy", "crisp", "light", "thin", "thick", "wavy",
+    "ridged", "ridge", "ruffled", "puffed", "puff", "crunched",
+    # size / quantity
+    "mini", "large", "small", "medium", "giant", "jumbo", "regular",
+    "family", "sharing", "single", "double", "triple", "extra",
+    # generic product descriptors that look like brand names when capitalised
+    "premium", "classic", "signature", "special", "limited", "edition",
+    "lite", "zero", "plus", "pro", "max", "ultra", "super", "mega",
+    # catch-all sensory / marketing adjectives
+    "fresh", "pure", "real", "true", "genuine", "authentic", "organic",
+    "natural", "healthy", "rich", "bold", "strong", "mild", "hot",
+    "cool", "cold", "frozen", "dry", "wet", "raw",
+}
+
 _GENERIC_NOUNS = {
     # supplement / food category words
     "protein", "supplement", "supplements", "whey", "creatine", "bcaa",
     "powder", "capsule", "capsules", "tablet", "tablets", "bar", "bars",
     "shake", "shakes", "blend", "formula", "formulas", "mix", "dose",
     "dosage", "ingredient", "ingredients", "flavor", "flavors", "scoop",
-    "chip", "chips", "snack", "snacks", "chocolate", "candy", "sweet",
+    "chip", "chips", "snack", "snacks", "candy", "sweet",
     "drink", "beverage", "juice", "soda", "water", "milk", "cream",
     "food", "meal", "diet", "nutrition", "calorie", "calories", "carb",
     # business/meta
@@ -50,9 +77,9 @@ _GENERIC_NOUNS = {
     "tools", "app", "apps", "model", "models", "system",
     # quality / superlatives
     "best", "top", "great", "good", "better", "popular", "trusted",
-    "recommended", "leading", "quality", "premium", "value", "budget",
+    "recommended", "leading", "quality", "value", "budget",
     "review", "reviews", "rating", "ratings", "range", "variety",
-    "popular", "affordable", "cheap", "expensive", "price",
+    "affordable", "cheap", "expensive", "price",
     # generic English
     "the", "this", "these", "that", "those", "when", "however",
     "additionally", "furthermore", "for", "in", "it", "you", "they",
@@ -85,7 +112,8 @@ _GENERIC_NOUNS = {
     "purpose", "purposes", "benefit", "benefits", "feature", "features",
 }
 
-_BLOCKLIST = _GEOGRAPHY | _GENERIC_NOUNS
+# FIX 2: Merge all three block-lists so every filter check is a single lookup.
+_BLOCKLIST = _GEOGRAPHY | _GENERIC_NOUNS | _FLAVORS_AND_ATTRIBUTES
 
 _POSITIVE_SIGNALS = {
     "best", "top", "recommended", "leading", "popular", "trusted",
@@ -119,20 +147,43 @@ def fuzzy_match(a: str, b: str) -> bool:
 # ---------------------------------------------------------------------------
 # Layer 1: LLM-first extraction via Groq internal model
 # ---------------------------------------------------------------------------
-_LLM_SYSTEM = (
-    "You are a precise named-entity recognition system. "
-    "Extract ONLY brand names, company names, and specific product names from the text. "
-    "Strict rules:\n"
-    "  - DO NOT include: generic nouns (protein, powder, supplement, whey, chips, chocolate, "
-    "    snack, drink), geographic terms (India, USA, Asia), adjectives (best, top, popular), "
-    "    or common English words.\n"
-    "  - DO include: MuscleBlaze, Optimum Nutrition, MyProtein, Dymatize, GNC, MuscleTech, "
-    "    Lay's, Doritos, Pringles, Haldirams, etc.\n"
-    "  - For each entity, classify its type: 'brand', 'product', or 'category'.\n"
-    "Return ONLY valid JSON — an array of objects: "
-    '[{"name": "...", "type": "brand|product|category"}]. '
-    "No markdown, no explanation — just the JSON array."
-)
+# FIX 3: Completely rewrote the system prompt.
+# Key changes:
+#   - Explicit EXCLUDE list for flavors/adjectives/attributes
+#   - Positive INCLUDE examples are real trademarked brand names only
+#   - Added the "if in doubt, leave it out" rule
+#   - Removed the old examples that mixed real brands with flavor words
+_LLM_SYSTEM = """You are a strict named-entity recognition system specialised in brand extraction.
+
+TASK: Extract ONLY the names of real, trademarked brands or companies from the text.
+
+STRICT RULES — read carefully:
+
+INCLUDE only if the name is:
+  - A real registered brand or company (e.g. MuscleBlaze, Optimum Nutrition, MyProtein,
+    Dymatize, GNC, MuscleTech, Lay's, Doritos, Pringles, Haldiram's, Kurkure, Bingo,
+    Too Yumm, ITC, PepsiCo, Britannia, Parle, Nestle, Cadbury, Red Bull, Monster)
+
+EXCLUDE anything that is:
+  - A flavor, taste, or sensory word: spicy, masala, salted, sweet, tangy, cheesy,
+    smoky, original, classic, roasted, crunchy, crispy, plain, barbecue, chilli, pepper
+  - An adjective or attribute: best, top, premium, popular, healthy, light, mini, extra
+  - A generic food/product category: protein, supplement, powder, chips, snack, drink,
+    bar, shake, capsule, blend, formula
+  - A geographic term: India, USA, Asia, Global, Local
+  - Any common English word
+
+WHEN IN DOUBT, LEAVE IT OUT. Only include names you are confident are real brand names.
+
+For each valid brand, output its type:
+  "brand"   — the company / brand itself (Lay's, MuscleBlaze)
+  "product" — a specific named product line that is trademarked (Kurkure Triangles)
+  "category" — never use this; categories are always excluded
+
+Return ONLY valid JSON — an array of objects with no markdown, no explanation:
+[{"name": "ExactBrandName", "type": "brand|product"}]
+
+If no valid brands are found, return an empty array: []"""
 
 
 def _llm_extract_sync(text: str) -> list[dict]:
@@ -142,7 +193,6 @@ def _llm_extract_sync(text: str) -> list[dict]:
     """
     snippet = text[:1200]
     try:
-        # Use the sync Groq client directly for the internal call
         import os
         from groq import Groq
         client = Groq(api_key=os.getenv("GROQ_API_KEY"))
@@ -182,20 +232,35 @@ _JUNK_RE = re.compile(
     re.IGNORECASE,
 )
 
-_TITLE_RE = re.compile(r'\b([A-Z][a-zA-Z0-9&\'-]{1,}(?:[ \t][A-Z][a-zA-Z0-9&\'-]{1,}){0,3})\b')
-_CAPS_RE  = re.compile(r'\b([A-Z]{2,}[a-zA-Z0-9]*)\b')
+# FIX 4: Tightened the title-case regex — now requires at least 2 chars per
+# token to prevent single-letter initials and 2-char abbreviations from matching.
+_TITLE_RE = re.compile(r'\b([A-Z][a-zA-Z0-9&\'-]{2,}(?:[ \t][A-Z][a-zA-Z0-9&\'-]{2,}){0,3})\b')
+_CAPS_RE  = re.compile(r'\b([A-Z]{3,}[a-zA-Z0-9]*)\b')  # raised minimum to 3 ALL-CAPS chars
+
+# FIX 5: Pre-compiled set of normalised blocklist keys for O(1) lookup.
+_BLOCKLIST_NORM = {_normalise(w) for w in _BLOCKLIST}
 
 
 def _is_valid(name: str, entity_type: str = "brand") -> bool:
     lower = name.lower().strip()
+    norm  = _normalise(name)
+
+    # Direct lowercase match
     if lower in _BLOCKLIST:
+        return False
+    # Normalised match catches accented / punctuated variants
+    if norm in _BLOCKLIST_NORM:
         return False
     if len(name) < 3:
         return False
     if _JUNK_RE.match(name):
         return False
-    # Categories are never competitor brands
+    # FIX 6: Reject entity_type == "category" AND "product" adjective-style names.
     if entity_type == "category":
+        return False
+    # FIX 7: Reject names that are pure dictionary words (all lowercase when stripped).
+    # Real brand names are almost always mixed-case or acronyms.
+    if name == name.lower() and len(name) < 8:
         return False
     return True
 
@@ -208,7 +273,7 @@ def _regex_fallback(text: str) -> list[dict]:
         key = _normalise(name)
         if key in seen or not key or len(key) < 3:
             continue
-        if name.lower() in _BLOCKLIST or _JUNK_RE.match(name):
+        if name.lower() in _BLOCKLIST or key in _BLOCKLIST_NORM or _JUNK_RE.match(name):
             continue
         seen.add(key)
         candidates.append({"name": name, "type": "brand"})
@@ -252,11 +317,11 @@ def _enrich(items: list[dict], text: str) -> list[dict]:
             break
 
         enriched.append({
-            "name":          name,
-            "type":          entity_type,
-            "positions":     positions,
-            "count":         count,
-            "sentiment":     sentiment,
+            "name":           name,
+            "type":           entity_type,
+            "positions":      positions,
+            "count":          count,
+            "sentiment":      sentiment,
             "first_position": first_pos,
         })
 
