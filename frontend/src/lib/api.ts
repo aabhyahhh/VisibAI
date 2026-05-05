@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { AEOResult, HistoryEntry } from './types';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const API = (import.meta.env.VITE_API_URL || 'http://localhost:4000').replace(/\/$/, '');
 
 export async function runDiagnostic(query: string, businessName: string): Promise<AEOResult> {
   try {
